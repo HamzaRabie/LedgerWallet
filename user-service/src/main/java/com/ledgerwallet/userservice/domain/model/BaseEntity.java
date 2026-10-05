@@ -2,7 +2,6 @@ package com.ledgerwallet.userservice.domain.model;
 
 import jakarta.persistence.*;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.Instant;
@@ -23,4 +22,17 @@ public abstract class BaseEntity {
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+
+    @PrePersist
+    protected void onCreate() {
+        Instant now = Instant.now();
+        this.createdAt = now;
+        this.updatedAt = now;
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        this.updatedAt = Instant.now();
+    }
 }
