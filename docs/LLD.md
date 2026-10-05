@@ -2,50 +2,102 @@
 
 ## 1. Overview
 
-This document describes the low-level design of the Secure Digital Wallet & Payment Ledger Platform, including service responsibilities, database tables, entity fields, indexes, and core payment flows.
+This document describes the low-level design of the Secure Digital Wallet & Payment Ledger Platform.
 
-The system is divided into three main backend services:
+The current implementation focuses on the User Service. The planned services are:
 
 - User Service
 - Wallet Service
 - Notification Service
 
-The API Gateway acts as the entry point but does not own business tables.
+The API Gateway acts as the external entry point but does not own business tables.
 
 ---
 
-## 2. Shared Base Entity
+## 2. User Service Package Structure
 
-All main database entities extend a shared base entity.
+The User Service uses a package-based layered structure.
 
-### BaseEntity
+```text
+com.ledgerwallet.userservice
+  application
+    common
+      AppError
+      Result
+      UserErrors
+    dtos
+      RegisterRequest
+      LoginRequest
+      AuthResponse
+      UserResponse
+    mappers
+      UserMapper
+    services
+      AuthService
+      JwtService
+      UserService
+
+  domain
+    model
+      BaseEntity
+      User
+      UserStatus
+
+  infrastructure
+    persistence
+      repository
+        UserRepository
+    security
+      JwtAuthenticationFilter
+      JwtServiceImpl
+      PasswordConfig
+      SecurityConfig
+    services
+      AuthServiceImpl
+
+  presentation
+    controllers
+      AuthController
+      UserController
+```
+
+---
+
+## 3. Shared Base Entity
+
+`BaseEntity` is inherited by JPA entities.
 
 | Field | Description |
 |---|---|
-| id | Primary key |
+| id | UUID primary key |
 | createdAt | Record creation timestamp |
 | updatedAt | Last update timestamp |
 
+Timestamp behavior:
+
+- `createdAt` and `updatedAt` are set before insert.
+- `updatedAt` is refreshed before update.
+
 ---
 
-## 3. User Service
+## 4. User Service
 
 ### Responsibility
 
-The User Service manages user identity, authentication data, profile information, and profile image references.
+The User Service manages identity, authentication, profile data, password hashing, JWT generation, JWT validation, and protected user endpoints.
 
 ### Table: users
 
 | Field | Description |
 |---|---|
-| id | Primary key |
+| id | UUID primary key |
 | firstName | User first name |
 | lastName | User last name |
 | phone | User phone number |
 | email | User email address |
 | username | Unique username |
-| passwordHash | Hashed password |
-| profileImageKey | S3 object key for the profile image |
+| passwordHash | BCrypt hashed password |
+| profileImageKey | S3 object key for profile image |
 | status | User account status |
 | createdAt | Created timestamp |
 | updatedAt | Updated timestamp |
@@ -57,15 +109,221 @@ The User Service manages user identity, authentication data, profile information
 - Unique index on `phone`
 - Unique index on `username`
 
+### UserStatus
+
+```text
+ACTIVE
+INACTIVE
+DELETED
+```
+
 ---
 
-## 4. Wallet Service
+## 5. User Service DTOs
+
+### RegisterRequest
+
+```text
+firstName
+lastName
+phone
+email
+username
+password
+```
+
+### LoginRequest
+
+```text
+emailOrUsername
+password
+```
+
+### AuthResponse
+
+```text
+accessToken
+user
+```
+
+### UserResponse
+
+```text
+id
+firstName
+lastName
+phone
+email
+username
+status
+createdAt
+updatedAt
+```
+
+`passwordHash` is never returned in response DTOs.
+
+---
+
+## 6. Result Pattern
+
+Application services return `Result<T>`.
+
+### Result
+
+```text
+success
+data
+error
+```
+
+### AppError
+
+```text
+code
+message
+```
+
+### UserErrors
+
+```text
+EMAIL_ALREADY_EXISTS
+USERNAME_ALREADY_EXISTS
+PHONE_ALREADY_EXISTS
+INVALID_CREDENTIALS
+USER_NOT_FOUND
+INACTIVE_USER
+```
+
+Repository methods can return `Optional`, while application services return `Result`.
+
+---
+
+## 7. Authentication Design
+
+### AuthService
+
+```text
+register(RegisterRequest) -> Result<AuthResponse>
+login(LoginRequest) -> Result<AuthResponse>
+```
+
+### Register Flow
+
+1. Check username uniqueness.
+2. Check email uniqueness.
+3. Check phone uniqueness.
+4. Hash password using `PasswordEncoder`.
+5. Map request to `User`.
+6. Save user.
+7. Generate JWT using saved user.
+8. Return `AuthResponse`.
+
+### Login Flow
+
+1. Find user by email.
+2. If not found, find user by username.
+3. If still not found, return `INVALID_CREDENTIALS`.
+4. Validate password using `passwordEncoder.matches`.
+5. Check user status is `ACTIVE`.
+6. Generate JWT.
+7. Return `AuthResponse`.
+
+Login returns `INVALID_CREDENTIALS` for missing users or wrong passwords to avoid revealing whether an account exists.
+
+---
+
+## 8. JWT Design
+
+### JwtService
+
+```text
+generateToken(User) -> String
+validateToken(String) -> boolean
+extractUserId(String) -> String
+```
+
+### JWT Payload
+
+```text
+subject = user id
+username
+email
+phone
+issuedAt
+expiration
+```
+
+The JWT is signed with a configured secret key.
+
+---
+
+## 9. Security Filter Design
+
+### SecurityConfig
+
+Security rules:
+
+```text
+/auth/register -> public
+/auth/login -> public
+all other endpoints -> authenticated
+```
+
+Security configuration:
+
+- CSRF disabled for REST APIs
+- HTTP Basic disabled
+- Form login disabled
+- Stateless sessions
+- JWT filter added before `UsernamePasswordAuthenticationFilter`
+
+### JwtAuthenticationFilter
+
+The filter runs once per request.
+
+Flow:
+
+1. Read `Authorization` header.
+2. If missing or not `Bearer`, continue without authentication.
+3. Extract token.
+4. Validate token.
+5. Extract user id from token subject.
+6. Create `UsernamePasswordAuthenticationToken`.
+7. Store authentication in `SecurityContextHolder`.
+8. Continue filter chain.
+
+Current authorities are empty because role-based authorization is not added yet.
+
+---
+
+## 10. User API Endpoints
+
+### AuthController
+
+```text
+POST /auth/register
+POST /auth/login
+```
+
+Register returns `201 Created`.
+
+Login returns `200 OK`.
+
+### UserController
+
+```text
+GET /users/me/test
+```
+
+This is a protected test endpoint used to verify JWT authentication.
+
+---
+
+## 11. Wallet Service
 
 ### Responsibility
 
 The Wallet Service manages wallet balances, deposits, withdrawals, wallet-to-wallet transfers, transaction history, idempotency, optimistic locking, tamper-evident transaction hashes, and outbox events.
-
----
 
 ### Table: wallets
 
@@ -143,7 +401,7 @@ The Wallet Service manages wallet balances, deposits, withdrawals, wallet-to-wal
 
 ---
 
-## 5. Notification Service
+## 12. Notification Service
 
 ### Responsibility
 
@@ -172,7 +430,7 @@ The Notification Service consumes wallet events and stores notification records.
 
 ---
 
-## 6. Core Payment Flow
+## 13. Core Payment Flow
 
 ### Deposit
 
@@ -211,7 +469,7 @@ The Notification Service consumes wallet events and stores notification records.
 
 ---
 
-## 7. Idempotency Design
+## 14. Idempotency Design
 
 The system stores the `idempotencyKey` directly inside the `transactions` table.
 
@@ -221,7 +479,7 @@ If it exists, the service returns the existing result instead of creating a dupl
 
 ---
 
-## 8. Optimistic Locking Design
+## 15. Optimistic Locking Design
 
 The `wallets` table contains a `version` field.
 
@@ -231,7 +489,7 @@ If a version conflict happens, the request can fail with a conflict response or 
 
 ---
 
-## 9. Tamper-Evident Ledger Design
+## 16. Tamper-Evident Ledger Design
 
 Each transaction stores:
 
@@ -244,7 +502,7 @@ This creates a hash chain, so changing an old transaction makes later hashes inv
 
 ---
 
-## 10. Transactional Outbox Design
+## 17. Transactional Outbox Design
 
 The Wallet Service does not publish Kafka events directly inside the payment operation.
 
