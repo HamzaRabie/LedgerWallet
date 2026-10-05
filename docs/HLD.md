@@ -2,15 +2,16 @@
 
 ## 1. Overview
 
-The Secure Digital Wallet & Payment Ledger Platform is a backend system designed to handle user authentication, wallet operations, payment transactions, and notifications in a reliable and secure way.
+The Secure Digital Wallet & Payment Ledger Platform is a backend system for user authentication, wallet operations, payment transactions, transaction history, and notifications.
 
-The system uses an API Gateway as the single entry point for client requests. Core business capabilities are separated into services such as Auth/User Service, Wallet Service, and Notification Service. Persistent data is stored in PostgreSQL, frequently accessed data can be cached in Redis, wallet events are published through Kafka, and user profile files are stored in AWS S3.
+The system is designed as a group of backend services. The current implementation starts with the User Service, which handles registration, login, JWT generation, JWT validation, and protected user endpoints. Future services include Wallet Service, Notification Service, and API Gateway.
 
-The architecture focuses on consistency, reliability, and auditability by using patterns such as idempotent APIs, optimistic locking, transactional outbox, idempotent event consumers, and tamper-evident ledger records.
+The architecture focuses on secure authentication, clear service boundaries, reliable payment processing, event-driven communication, and auditable transaction records.
 
 ## 2. Goals
 
-- Provide secure user authentication and authorization
+- Provide secure user registration and login
+- Issue JWT access tokens for protected APIs
 - Support wallet deposits, withdrawals, and transfers
 - Maintain accurate wallet balances and transaction history
 - Prevent duplicate payment processing using idempotency
@@ -20,16 +21,16 @@ The architecture focuses on consistency, reliability, and auditability by using 
 
 ## 3. System Context
 
-Clients interact with the platform through the API Gateway. The gateway routes requests to internal backend services based on the requested resource.
+Clients call backend APIs through REST endpoints. In the final architecture, an API Gateway acts as the single entry point and routes requests to internal services.
 
-The Auth/User Service handles registration, login, JWT generation, user profile management, and profile image storage. The Wallet Service handles wallet balances, deposits, withdrawals, transfers, transaction records, and ledger integrity. The Notification Service consumes wallet events from Kafka and sends email or webhook notifications.
+The User Service owns user identity, credentials, profile data, JWT generation, and JWT-based request authentication. The Wallet Service owns wallet balances, payment operations, transactions, idempotency, optimistic locking, and outbox events. The Notification Service consumes wallet events and stores notification delivery records.
 
-Supporting infrastructure includes PostgreSQL for durable storage, Redis for caching, Kafka for asynchronous messaging, AWS S3 for file storage, and Docker for local development.
+Supporting infrastructure includes PostgreSQL for durable storage, Kafka for asynchronous messaging, Redis for caching, AWS S3 for profile image storage, and Docker for local development.
 
 ## 4. Core Components
 
 - API Gateway
-- Auth/User Service
+- User Service
 - Wallet Service
 - Notification Service
 - Outbox Publisher
@@ -42,18 +43,20 @@ Supporting infrastructure includes PostgreSQL for durable storage, Redis for cac
 
 ### API Gateway
 
-- Exposes a single entry point for clients
+- Provides a single external entry point
 - Routes requests to internal services
-- Validates or forwards authentication headers
+- Forwards authentication headers
 - Can support rate limiting and request filtering
 
-### Auth/User Service
+### User Service
 
 - Handles user registration and login
+- Hashes passwords using BCrypt
 - Issues JWT access tokens
+- Validates JWT tokens through a security filter
 - Stores user profile information
-- Uploads and stores profile images in AWS S3
-- Provides user identity data to other services
+- Stores profile image keys for AWS S3
+- Provides user lookup APIs for other services later
 
 ### Wallet Service
 
@@ -61,9 +64,9 @@ Supporting infrastructure includes PostgreSQL for durable storage, Redis for cac
 - Handles deposits, withdrawals, and wallet-to-wallet transfers
 - Maintains wallet balances
 - Records transaction history
-- Applies idempotency checks for payment operations
+- Stores idempotency keys in transaction records
 - Uses optimistic locking to protect concurrent updates
-- Creates tamper-evident ledger records
+- Creates tamper-evident transaction hashes
 - Writes wallet events to the outbox table
 
 ### Outbox Publisher
@@ -75,90 +78,19 @@ Supporting infrastructure includes PostgreSQL for durable storage, Redis for cac
 ### Notification Service
 
 - Consumes wallet events from Kafka
-- Sends notifications through email or webhook channels
-- Uses idempotent consumers to avoid duplicate notification processing
-- Stores notification delivery status
+- Stores notification records
+- Sends notifications through supported channels such as email or webhook
 
 ## 6. Communication Patterns
 
-The system uses two communication styles:
+The system uses synchronous REST communication for direct user requests such as registration, login, wallet balance lookup, deposits, withdrawals, and transfers.
 
-- **Synchronous REST communication** for direct user requests such as login, wallet balance lookup, deposits, withdrawals, and transfers.
-- **Asynchronous event-driven communication** for background processes such as sending notifications after wallet events occur.
+The system uses asynchronous event-driven communication for background work such as notification delivery after wallet events.
 
-Kafka is used to decouple the Wallet Service from the Notification Service so payment processing does not depend on notification delivery.
+Kafka decouples wallet processing from notification delivery so payment operations do not depend on notification success.
 
-## 7. Main User Flows
+## 7. Authentication Flow
 
-### Registration and Login
+### Register
 
-1. User sends registration or login request through the API Gateway.
-2. API Gateway routes the request to the Auth/User Service.
-3. Auth/User Service validates credentials and issues a JWT token.
-4. Client uses the JWT token for protected requests.
-
-### Deposit
-
-1. User sends a deposit request with an idempotency key.
-2. Wallet Service validates the request and checks if the idempotency key was already used.
-3. Wallet balance is updated inside a database transaction.
-4. A ledger record and outbox event are saved.
-5. Outbox Publisher later publishes the event to Kafka.
-6. Notification Service consumes the event and sends a notification.
-
-### Withdrawal
-
-1. User sends a withdrawal request with an idempotency key.
-2. Wallet Service validates balance availability.
-3. Wallet balance is updated using optimistic locking.
-4. A ledger record and outbox event are saved.
-5. Notification is sent asynchronously through Kafka.
-
-### Transfer
-
-1. User sends a transfer request with receiver information and an idempotency key.
-2. Wallet Service validates the sender wallet, receiver wallet, and available balance.
-3. Sender wallet is debited and receiver wallet is credited inside one database transaction.
-4. Ledger records are created for both wallets.
-5. An outbox event is saved and later published to Kafka.
-6. Notification Service sends transfer notifications.
-
-## 8. Data Storage
-
-- **PostgreSQL** stores users, wallets, transactions, ledger records, idempotency keys, outbox events, and notifications.
-- **Redis** stores cached data such as user or wallet lookup results and can support rate limiting.
-- **AWS S3** stores user profile images.
-- **Kafka** stores wallet events temporarily for asynchronous processing by consumers.
-
-## 9. Reliability and Consistency
-
-- Idempotency keys prevent duplicate processing of repeated payment requests.
-- Optimistic locking protects wallet balances during concurrent updates.
-- Database transactions ensure wallet updates and ledger records are saved atomically.
-- Transactional outbox ensures wallet events are not lost after successful payment operations.
-- Idempotent Kafka consumers prevent duplicate notification handling.
-- Chained SHA-256 hashes make ledger tampering detectable.
-
-## 10. Security
-
-- JWT is used for authenticating protected API requests.
-- Passwords are stored as secure hashes.
-- Sensitive operations require authenticated users.
-- Request validation is applied to payment APIs.
-- AWS S3 is used for controlled profile image storage.
-- Services should avoid exposing internal implementation details through error responses.
-
-## 11. Deployment View
-
-The system can be deployed using Dockerized services. Each backend service runs as a separate container, while PostgreSQL, Redis, and Kafka run as supporting infrastructure containers in local development.
-
-In production, managed services can be used for PostgreSQL, Redis, Kafka, and AWS S3.
-
-## 12. Tradeoffs and Future Improvements
-
-- Start with one wallet per user, then extend to multi-currency wallets later.
-- Keep ledger logic inside the Wallet Service first, then extract it into a separate Ledger Service if needed.
-- Add distributed tracing and metrics for better observability.
-- Add rate limiting to protect payment APIs.
-- Add webhook retry policies for failed notification deliveries.
-- Add admin tools for auditing and support operations.
+1. Client sends registration data to the User Service.
