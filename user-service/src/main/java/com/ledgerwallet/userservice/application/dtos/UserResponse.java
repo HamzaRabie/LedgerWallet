@@ -12,6 +12,7 @@ public record UserResponse(
         String phone,
         String email,
         String username,
+        String role,
         UserStatus status,
         Instant createdAt,
         Instant updatedAt

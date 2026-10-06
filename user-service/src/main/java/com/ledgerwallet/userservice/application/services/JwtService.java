@@ -6,5 +6,6 @@ public interface JwtService {
     String generateToken(User user);
     boolean validateToken(String token);
     String extractUserId(String token);
+    String extractRole(String token);
     
 }

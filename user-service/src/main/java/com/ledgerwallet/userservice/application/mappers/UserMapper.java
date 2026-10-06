@@ -3,6 +3,7 @@ package com.ledgerwallet.userservice.application.mappers;
 import com.ledgerwallet.userservice.application.dtos.AuthResponse;
 import com.ledgerwallet.userservice.application.dtos.RegisterRequest;
 import com.ledgerwallet.userservice.application.dtos.UserResponse;
+import com.ledgerwallet.userservice.domain.model.UserRole;
 import com.ledgerwallet.userservice.domain.model.User;
 import com.ledgerwallet.userservice.domain.model.UserStatus;
 
@@ -20,6 +21,7 @@ public final class UserMapper {
         user.setUsername(request.username());
         user.setPasswordHash(passwordHash);
         user.setStatus(UserStatus.ACTIVE);
+        user.setRole(UserRole.USER);
 
         return user;
     }
@@ -32,6 +34,7 @@ public final class UserMapper {
                 user.getPhone(),
                 user.getEmail(),
                 user.getUsername(),
+                user.getRole().name(),
                 user.getStatus(),
                 user.getCreatedAt(),
                 user.getUpdatedAt()

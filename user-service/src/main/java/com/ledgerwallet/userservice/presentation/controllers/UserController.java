@@ -1,30 +1,28 @@
 package com.ledgerwallet.userservice.presentation.controllers;
 
-import com.ledgerwallet.userservice.application.common.Result;
-import com.ledgerwallet.userservice.application.dtos.AuthResponse;
-import com.ledgerwallet.userservice.application.dtos.LoginRequest;
-import com.ledgerwallet.userservice.application.dtos.RegisterRequest;
-import com.ledgerwallet.userservice.application.services.AuthService;
+import com.ledgerwallet.userservice.application.dtos.UserResponse;
+import com.ledgerwallet.userservice.application.services.UserService;
 import com.ledgerwallet.userservice.presentation.response.ApiResponse;
-import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 @RestController
-@RequestMapping("/auth")
-@RequiredArgsConstructor
-public class AuthController {
-    private final AuthService authService;
+@RequestMapping("/users")
+public class UserController {
+    private final UserService userService;
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
 
-    @PostMapping("/register")
-    public ResponseEntity<ApiResponse<AuthResponse>> register(@Valid @RequestBody RegisterRequest request) {
-        Result<AuthResponse> result = authService.register(request);
-
+    @GetMapping("/me")
+    public ResponseEntity<ApiResponse<UserResponse>> getCurrentUser(Authentication authentication) {
+        var result = userService.getCurrentUser(authentication);
         if (result.isFailure()) {
             var error = result.getErrorOrThrow();
             return ResponseEntity.badRequest().body(
@@ -38,20 +36,21 @@ public class AuthController {
             );
         }
 
-        return ResponseEntity.status(HttpStatus.CREATED).body(
+        UserResponse response = result.getDataOrThrow();
+        return ResponseEntity.ok(
                 new ApiResponse<>(
                         true,
-                        HttpStatus.CREATED.value(),
-                        "User registered successfully",
-                        result.getDataOrThrow(),
+                        HttpStatus.OK.value(),
+                        "Current user retrieved successfully",
+                        response,
                         null
                 )
         );
     }
 
-    @PostMapping("/login")
-    public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody LoginRequest request) {
-        Result<AuthResponse> result = authService.login(request);
+    @GetMapping
+    public ResponseEntity<ApiResponse<List<UserResponse>>> getAllUsers() {
+        var result = userService.getAllUsers();
 
         if (result.isFailure()) {
             var error = result.getErrorOrThrow();
@@ -70,7 +69,7 @@ public class AuthController {
                 new ApiResponse<>(
                         true,
                         HttpStatus.OK.value(),
-                        "User logged in successfully",
+                        "Users retrieved successfully",
                         result.getDataOrThrow(),
                         null
                 )

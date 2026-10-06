@@ -1,7 +1,6 @@
 package com.ledgerwallet.userservice.domain.model;
 
 import jakarta.persistence.*;
-import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -33,6 +32,10 @@ public class User extends BaseEntity {
 
     @Column(name = "profile_image_key", length = 500)
     private String profileImageKey;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "role" , nullable = false , length = 30)
+    private UserRole role;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 30)
