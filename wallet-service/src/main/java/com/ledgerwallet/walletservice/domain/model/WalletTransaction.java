@@ -40,4 +40,10 @@ public class WalletTransaction extends BaseEntity {
 
     @Column(name = "current_hash", nullable = false, length = 64)
     private String currentHash;
+
+    @Column(name = "nonce", nullable = false)
+    private Long nonce;
+
+    @Column(name = "difficulty", nullable = false)
+    private Integer difficulty;
 }

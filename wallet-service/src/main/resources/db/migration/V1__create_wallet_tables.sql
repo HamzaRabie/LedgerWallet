@@ -20,6 +20,8 @@ CREATE TABLE transactions (
     idempotency_key VARCHAR(100) NOT NULL,
     previous_hash VARCHAR(64),
     current_hash VARCHAR(64) NOT NULL,
+    nonce BIGINT NOT NULL,
+    difficulty INTEGER NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
