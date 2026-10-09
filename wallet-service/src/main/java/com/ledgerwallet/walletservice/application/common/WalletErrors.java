@@ -20,6 +20,10 @@ public final class WalletErrors {
         return new AppError("INSUFFICIENT_BALANCE", "Wallet balance is not enough for this operation");
     }
 
+    public static AppError sameWalletTransfer() {
+        return new AppError("SAME_WALLET_TRANSFER", "Cannot transfer money to the same wallet");
+    }
+
     public static AppError duplicateIdempotencyKey() {
         return new AppError("DUPLICATE_IDEMPOTENCY_KEY", "This payment request was already processed");
     }

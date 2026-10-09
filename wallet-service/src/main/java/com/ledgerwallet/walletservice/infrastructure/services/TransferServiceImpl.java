@@ -2,16 +2,16 @@ package com.ledgerwallet.walletservice.infrastructure.services;
 
 import com.ledgerwallet.walletservice.application.common.Result;
 import com.ledgerwallet.walletservice.application.common.WalletErrors;
-import com.ledgerwallet.walletservice.application.dtos.DepositRequest;
+import com.ledgerwallet.walletservice.application.dtos.TransferRequest;
 import com.ledgerwallet.walletservice.application.dtos.WalletTransactionResponse;
 import com.ledgerwallet.walletservice.application.mappers.WalletTransactionMapper;
-import com.ledgerwallet.walletservice.application.services.DepositService;
 import com.ledgerwallet.walletservice.application.services.LedgerHashService;
+import com.ledgerwallet.walletservice.application.services.TransferService;
 import com.ledgerwallet.walletservice.domain.model.TransactionStatus;
 import com.ledgerwallet.walletservice.domain.model.TransactionType;
 import com.ledgerwallet.walletservice.domain.model.WalletTransaction;
-import com.ledgerwallet.walletservice.infrastructure.persistence.repository.WalletTransactionRepository;
 import com.ledgerwallet.walletservice.infrastructure.persistence.repository.WalletRepository;
+import com.ledgerwallet.walletservice.infrastructure.persistence.repository.WalletTransactionRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -21,7 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.util.UUID;
 
 @Service
-public class DepositServiceImpl implements DepositService {
+public class TransferServiceImpl implements TransferService {
     private static final int MAX_OPTIMISTIC_LOCK_RETRIES = 3;
 
     private final WalletRepository walletRepository;
@@ -29,7 +29,7 @@ public class DepositServiceImpl implements DepositService {
     private final LedgerHashService ledgerHashService;
     private final TransactionTemplate transactionTemplate;
 
-    public DepositServiceImpl(
+    public TransferServiceImpl(
             WalletRepository walletRepository,
             WalletTransactionRepository walletTransactionRepository,
             LedgerHashService ledgerHashService,
@@ -42,7 +42,11 @@ public class DepositServiceImpl implements DepositService {
     }
 
     @Override
-    public Result<WalletTransactionResponse> deposit(UUID userId, DepositRequest request) {
+    public Result<WalletTransactionResponse> transfer(UUID senderUserId, TransferRequest request) {
+        if (senderUserId.equals(request.receiverUserId())) {
+            return Result.failure(WalletErrors.sameWalletTransfer());
+        }
+
         var existingTransaction = walletTransactionRepository.findByIdempotencyKey(request.idempotencyKey());
 
         if (existingTransaction.isPresent()) {
@@ -53,20 +57,33 @@ public class DepositServiceImpl implements DepositService {
         for (int attempt = 1; attempt <= MAX_OPTIMISTIC_LOCK_RETRIES; attempt++) {
             try {
                 return transactionTemplate.execute(status -> {
-                    var userWallet = walletRepository.findByUserId(userId);
-                    if(userWallet.isEmpty())return Result.failure(WalletErrors.walletNotFound());
+                    var senderWalletResult = walletRepository.findByUserId(senderUserId);
+                    if (senderWalletResult.isEmpty()) return Result.failure(WalletErrors.walletNotFound());
 
-                    var wallet = userWallet.get();
-                    wallet.setBalance(wallet.getBalance().add(request.amount()));
-                    walletRepository.saveAndFlush(wallet);
+                    var receiverWalletResult = walletRepository.findByUserId(request.receiverUserId());
+                    if (receiverWalletResult.isEmpty()) return Result.failure(WalletErrors.walletNotFound());
+
+                    var senderWallet = senderWalletResult.get();
+                    var receiverWallet = receiverWalletResult.get();
+
+                    if (senderWallet.getBalance().compareTo(request.amount()) < 0) {
+                        return Result.failure(WalletErrors.insufficientBalance());
+                    }
+
+                    senderWallet.setBalance(senderWallet.getBalance().subtract(request.amount()));
+                    receiverWallet.setBalance(receiverWallet.getBalance().add(request.amount()));
+
+                    walletRepository.saveAndFlush(senderWallet);
+                    walletRepository.saveAndFlush(receiverWallet);
 
                     WalletTransaction transaction = new WalletTransaction();
-                    transaction.setType(TransactionType.DEPOSIT);
-                    transaction.setSourceWalletId(null);
-                    transaction.setDestinationWalletId(wallet.getId());
+                    transaction.setType(TransactionType.TRANSFER);
+                    transaction.setSourceWalletId(senderWallet.getId());
+                    transaction.setDestinationWalletId(receiverWallet.getId());
                     transaction.setAmount(request.amount());
                     transaction.setStatus(TransactionStatus.COMPLETED);
                     transaction.setIdempotencyKey(request.idempotencyKey());
+
                     var previousHash = walletTransactionRepository.findTopByOrderByCreatedAtDesc()
                             .map(WalletTransaction::getCurrentHash)
                             .orElse(null);

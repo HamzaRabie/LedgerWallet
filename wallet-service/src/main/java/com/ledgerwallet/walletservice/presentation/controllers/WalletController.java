@@ -1,9 +1,13 @@
 package com.ledgerwallet.walletservice.presentation.controllers;
 
-import com.ledgerwallet.walletservice.application.common.AppError;
+import com.ledgerwallet.walletservice.application.common.Result;
 import com.ledgerwallet.walletservice.application.dtos.DepositRequest;
+import com.ledgerwallet.walletservice.application.dtos.TransferRequest;
 import com.ledgerwallet.walletservice.application.dtos.WalletTransactionResponse;
+import com.ledgerwallet.walletservice.application.dtos.WithdrawRequest;
 import com.ledgerwallet.walletservice.application.services.DepositService;
+import com.ledgerwallet.walletservice.application.services.TransferService;
+import com.ledgerwallet.walletservice.application.services.WithdrawService;
 import com.ledgerwallet.walletservice.presentation.response.ApiResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -20,9 +24,17 @@ import java.util.UUID;
 @RequestMapping("/wallets")
 public class WalletController {
     private final DepositService depositService;
+    private final WithdrawService withdrawService;
+    private final TransferService transferService;
 
-    public WalletController(DepositService depositService) {
+    public WalletController(
+            DepositService depositService,
+            WithdrawService withdrawService,
+            TransferService transferService
+    ) {
         this.depositService = depositService;
+        this.withdrawService = withdrawService;
+        this.transferService = transferService;
     }
 
     @PostMapping("/deposit")
@@ -30,16 +42,14 @@ public class WalletController {
             @RequestHeader("X-User-Id") UUID userId,
             @Valid @RequestBody DepositRequest request
     ) {
-        var result = depositService.deposit(userId, request);
+        Result<WalletTransactionResponse> result = depositService.deposit(userId, request);
 
         if (result.isFailure()) {
             var error = result.getErrorOrThrow();
-            var status = mapErrorStatus(error);
-
-            return ResponseEntity.status(status).body(
+            return ResponseEntity.badRequest().body(
                     new ApiResponse<>(
                             false,
-                            status.value(),
+                            HttpStatus.BAD_REQUEST.value(),
                             error.message(),
                             null,
                             error
@@ -58,11 +68,65 @@ public class WalletController {
         );
     }
 
-    private HttpStatus mapErrorStatus(AppError error) {
-        return switch (error.code()) {
-            case "WALLET_NOT_FOUND" -> HttpStatus.NOT_FOUND;
-            case "CONCURRENT_WALLET_UPDATE", "DUPLICATE_IDEMPOTENCY_KEY" -> HttpStatus.CONFLICT;
-            default -> HttpStatus.BAD_REQUEST;
-        };
+    @PostMapping("/withdraw")
+    public ResponseEntity<ApiResponse<WalletTransactionResponse>> withdraw(
+            @RequestHeader("X-User-Id") UUID userId,
+            @Valid @RequestBody WithdrawRequest request
+    ) {
+        Result<WalletTransactionResponse> result = withdrawService.withdraw(userId, request);
+
+        if (result.isFailure()) {
+            var error = result.getErrorOrThrow();
+            return ResponseEntity.badRequest().body(
+                    new ApiResponse<>(
+                            false,
+                            HttpStatus.BAD_REQUEST.value(),
+                            error.message(),
+                            null,
+                            error
+                    )
+            );
+        }
+
+        return ResponseEntity.ok(
+                new ApiResponse<>(
+                        true,
+                        HttpStatus.OK.value(),
+                        "Withdrawal completed successfully",
+                        result.getDataOrThrow(),
+                        null
+                )
+        );
+    }
+
+    @PostMapping("/transfer")
+    public ResponseEntity<ApiResponse<WalletTransactionResponse>> transfer(
+            @RequestHeader("X-User-Id") UUID userId,
+            @Valid @RequestBody TransferRequest request
+    ) {
+        Result<WalletTransactionResponse> result = transferService.transfer(userId, request);
+
+        if (result.isFailure()) {
+            var error = result.getErrorOrThrow();
+            return ResponseEntity.badRequest().body(
+                    new ApiResponse<>(
+                            false,
+                            HttpStatus.BAD_REQUEST.value(),
+                            error.message(),
+                            null,
+                            error
+                    )
+            );
+        }
+
+        return ResponseEntity.ok(
+                new ApiResponse<>(
+                        true,
+                        HttpStatus.OK.value(),
+                        "Transfer completed successfully",
+                        result.getDataOrThrow(),
+                        null
+                )
+        );
     }
 }
