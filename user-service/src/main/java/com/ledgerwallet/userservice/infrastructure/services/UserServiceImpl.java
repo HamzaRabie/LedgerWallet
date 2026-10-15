@@ -8,6 +8,7 @@ import com.ledgerwallet.userservice.application.services.UserService;
 import com.ledgerwallet.userservice.domain.model.User;
 import com.ledgerwallet.userservice.domain.model.UserStatus;
 import com.ledgerwallet.userservice.infrastructure.persistence.repository.UserRepository;
+import com.ledgerwallet.userservice.infrastructure.cache.CurrentUserCacheService;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
@@ -18,14 +19,26 @@ import java.util.UUID;
 @Service
 public class UserServiceImpl implements UserService {
     private final UserRepository userRepository;
-    public UserServiceImpl(UserRepository userRepository) {
+    private final CurrentUserCacheService currentUserCacheService;
+
+    public UserServiceImpl(
+            UserRepository userRepository,
+            CurrentUserCacheService currentUserCacheService
+    ) {
         this.userRepository = userRepository;
+        this.currentUserCacheService = currentUserCacheService;
     }
 
     @Override
     public Result<UserResponse> getCurrentUser(Authentication authentication) {
         try {
             UUID userId = UUID.fromString(authentication.getName());
+
+            UserResponse cachedUser = currentUserCacheService.findActiveUser(userId);
+            if (cachedUser != null) {
+                return Result.success(cachedUser);
+            }
+
             return findById(userId);
         } catch (IllegalArgumentException ex) {
             return Result.failure(UserErrors.invalidCredentials());

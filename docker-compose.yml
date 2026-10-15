@@ -1,4 +1,10 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: ledgerwallet-redis
+    ports:
+      - "6379:6379"
+
   kafka:
     image: apache/kafka:latest
     container_name: ledgerwallet-kafka
